@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NAV-EYE | Satellite Ship Detection</title>
+    <style>
+        :root {
+            --primary: #00d4ff;
+            --accent: #0056b3;
+            --bg: #0a0e14;
+            --glass: rgba(255, 255, 255, 0.05);
+        }
+
+        body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background: radial-gradient(circle at center, #1a2a3a 0%, #0a0e14 100%);
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        /* Glassmorphism Container */
+        .dashboard {
+            background: var(--glass);
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            padding: 40px;
+            width: 450px;
+            box-shadow: 0 25px 50px rgba(0,0,0,0.5);
+            text-align: center;
+            position: relative;
+        }
+
+        h1 {
+            font-weight: 300;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            font-size: 1.5rem;
+            margin-bottom: 30px;
+            color: var(--primary);
+            text-shadow: 0 0 15px rgba(0, 212, 255, 0.5);
+        }
+
+        /* Hidden File Input for Custom Button */
+        .file-upload {
+            position: relative;
+            margin-bottom: 25px;
+        }
+
+        #imageInput {
+            display: none;
+        }
+
+        .custom-upload-btn {
+            background: transparent;
+            border: 1px dashed var(--primary);
+            color: var(--primary);
+            padding: 15px 25px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: inline-block;
+        }
+
+        .custom-upload-btn:hover {
+            background: rgba(0, 212, 255, 0.1);
+            box-shadow: 0 0 20px rgba(0, 212, 255, 0.2);
+        }
+
+        /* Preview Area */
+        #previewContainer {
+            width: 100%;
+            height: 200px;
+            border-radius: 12px;
+            margin: 20px 0;
+            background: rgba(0,0,0,0.3);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+
+        #previewImg {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        /* Detection Button */
+        button#detectBtn {
+            background: var(--primary);
+            color: #000;
+            border: none;
+            padding: 12px 40px;
+            border-radius: 30px;
+            font-weight: bold;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: 0.3s;
+            width: 100%;
+        }
+
+        button#detectBtn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0, 212, 255, 0.4);
+        }
+
+        /* Status UI */
+        #result {
+            margin-top: 25px;
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            min-height: 20px;
+        }
+
+        .ship-found { color: #00ff88; text-shadow: 0 0 10px rgba(0, 255, 136, 0.4); }
+        .no-ship { color: #ff4444; }
+
+        .loading-pulse {
+            animation: pulse 1.5s infinite;
+            color: #aaa;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 0.5; }
+            50% { opacity: 1; }
+            100% { opacity: 0.5; }
+        }
+
+        #previewContainer {
+            position: relative; /* Anchor for the boxes */
+        }
+
+        .ship-box {
+            position: absolute;
+            border: 2px solid #00ff88;
+            background: rgba(0, 255, 136, 0.1);
+            pointer-events: none; /* Allows clicking through the box */
+            box-shadow: 0 0 10px #00ff88;
+        }
+
+        /* Radar Scanning Line */
+        .scan-line {
+            position: absolute;
+            width: 100%;
+            height: 2px;
+            background: var(--primary);
+            box-shadow: 0 0 15px var(--primary);
+            top: 0;
+            left: 0;
+            z-index: 10;
+            display: none;
+            animation: scanMove 2s linear infinite;
+        }
+
+        @keyframes scanMove {
+            0% { top: 0; }
+            100% { top: 100%; }
+        }
+
+        #previewContainer { position: relative; } /* Needed for scan-line */
+    </style>
+</head>
+<body>
+
+    <div class="dashboard">
+        <h1>NAV-EYE v1.0</h1>
+        
+        <div class="file-upload">
+            <button type="button" class="custom-upload-btn" onclick="document.getElementById('imageInput').click()">
+                SELECT SATELLITE CHIP
+            </button>
+            <input type="file" id="imageInput" accept=".jpg, .jpeg, .png" style="display: none;">
+        </div>
+
+        <div id="previewContainer">
+            <span id="placeholderText" style="color: #444;">No Image Loaded</span>
+            <img id="previewImg" src="" style="display:none;">
+            <div id="scanner" class="scan-line"></div>
+        </div>
+
+        <button id="detectBtn" onclick="uploadImage()">INITIALIZE SCAN</button>
+
+        <div id="result"></div>
+    </div>
+
+    <script>
+    const imageInput = document.getElementById('imageInput');
+    const previewImg = document.getElementById('previewImg');
+    const placeholderText = document.getElementById('placeholderText');
+    const previewContainer = document.getElementById('previewContainer');
+
+    // Handle Image Preview
+    // Handle Image Preview with Memory Management
+    imageInput.onchange = evt => {
+        const [file] = imageInput.files;
+        if (file) {
+            // NEW: Revoke the old URL to keep the browser fast
+            if (previewImg.src.startsWith('blob:')) {
+                URL.revokeObjectURL(previewImg.src);
+            }
+            
+            previewImg.src = URL.createObjectURL(file);
+            previewImg.style.display = 'block';
+            placeholderText.style.display = 'none';
+            
+            // Clear old boxes
+            document.querySelectorAll('.ship-box').forEach(box => box.remove());
+        }
+    }
+
+    async function uploadImage() {
+        const fileInput = document.getElementById('imageInput');
+        const resultDiv = document.getElementById('result');
+        
+        if (fileInput.files.length === 0) return;
+
+        // Start Radar Animation
+        document.getElementById('scanner').style.display = 'block';
+        
+        // Clear previous detections
+        document.querySelectorAll('.ship-box').forEach(box => box.remove());
+
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        resultDiv.innerHTML = '<span class="loading-pulse">SCANNING SECTOR...</span>';
+
+        try {
+            const response = await fetch('http://127.0.0.1:5000/predict', {
+                method: 'POST',
+                body: formData
+            });
+            const data = await response.json();
+            
+            // Stop Radar
+            document.getElementById('scanner').style.display = 'none';
+
+            if (data.count > 0) {
+                resultDiv.innerHTML = `
+                    <div class="ship-found">
+                        TARGETS ACQUIRED: ${data.count} <br>
+                        <small style="color:white; opacity:0.6">MAX CONFIDENCE: ${data.max_confidence}%</small>
+                    </div>`;
+                
+                // NEW: Precision scaling based on the displayed image size vs natural image size
+                const rect = previewImg.getBoundingClientRect();
+                const scaleX = rect.width / previewImg.naturalWidth;
+                const scaleY = rect.height / previewImg.naturalHeight;
+
+                data.detections.forEach(box => {
+                    const div = document.createElement('div');
+                    div.className = 'ship-box';
+                    
+                    // Positions the box relative to the image's position in the container
+                    div.style.left = (previewImg.offsetLeft + (box.x * scaleX)) + 'px';
+                    div.style.top = (previewImg.offsetTop + (box.y * scaleY)) + 'px';
+                    
+                    div.style.width = (box.w * scaleX) + 'px';
+                    div.style.height = (box.h * scaleY) + 'px';
+                    previewContainer.appendChild(div);
+                });
+            } else {
+                resultDiv.innerHTML = '<div class="no-ship">NO TARGETS IN SECTOR</div>';
+            }
+        } catch (error) {
+            document.getElementById('scanner').style.display = 'none';
+            resultDiv.innerHTML = '<span style="color:orange">SYSTEM ERROR: CHECK BACKEND</span>';
+        }
+    }
+</script>
+</body>
+</html>
